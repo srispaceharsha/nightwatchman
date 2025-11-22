@@ -1,0 +1,40 @@
+# Detection Parameters
+detection:
+  persistence_duration: 3          # seconds to confirm sitting before alert
+  cooldown_duration: 180           # seconds (5 minutes) post-alert suppression
+  confidence_threshold: 0.7        # minimum pose detection confidence
+
+  # Angle thresholds (degrees)
+  sitting_angle_min: 70
+  sitting_angle_max: 115
+  propped_angle_min: 30
+  propped_angle_max: 60
+  lying_angle_ranges:
+    - [-20, 20]
+    - [160, 200]
+
+  # Vertical difference thresholds (normalized 0-1 coordinates)
+  sitting_vertical_diff: 0.15
+  propped_vertical_diff: 0.08
+
+  # Hysteresis - extra tolerance when already in a state
+  hysteresis_angle_buffer: 10      # degrees of extra tolerance
+  hysteresis_vdiff_buffer: 0.05    # extra vertical diff tolerance
+
+# Camera
+camera:
+  device_id: 0                     # 0 = default webcam
+  resolution_width: 640
+  resolution_height: 480
+  frame_rate: 30                   # Camera capture rate (hardware setting)
+  processing_fps: 5                # Frames processed per second (lower = less CPU)
+
+# Display
+display:
+  show_camera_window: true         # Show OpenCV window with camera feed and skeleton
+
+# Logging
+logging:
+  log_file: logs/state_transitions.log
+  log_to_file: true
+  log_to_terminal: true
