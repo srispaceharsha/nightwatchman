@@ -1,7 +1,7 @@
 # Detection Parameters
 detection:
   persistence_duration: 3          # seconds to confirm sitting before alert
-  cooldown_duration: 180           # seconds (5 minutes) post-alert suppression
+  cooldown_duration: 15           # seconds (5 minutes) post-alert suppression
   confidence_threshold: 0.7        # minimum pose detection confidence
 
   # Angle thresholds (degrees)
@@ -32,6 +32,14 @@ camera:
 # Display
 display:
   show_camera_window: true         # Show OpenCV window with camera feed and skeleton
+
+# Gesture Controls
+gestures:
+  min_detection_confidence: 0.4    # Minimum confidence for hand detection
+  min_tracking_confidence: 0.4     # Minimum confidence for hand tracking
+  thumbs_up_hold_duration: 2.0     # Seconds to hold thumbs up before triggering
+  thumbs_down_hold_duration: 2.0   # Seconds to hold thumbs down before pausing
+  gesture_loss_grace_seconds: 0.4  # Grace period when gesture briefly lost
 
 # Logging
 logging:

@@ -18,6 +18,8 @@ from datetime import datetime
 from pose_detector import PoseDetector
 from metrics_calculator import MetricsCalculator
 from state_machine import PostureStateMachine, State
+from gesture_detector import GestureDetector
+from system_state import SystemStateManager, SystemState
 
 
 class PostureMonitor:
@@ -37,6 +39,8 @@ class PostureMonitor:
         self.pose_detector = PoseDetector()
         self.metrics_calculator = MetricsCalculator(self.config['detection'])
         self.state_machine = PostureStateMachine(self.config['detection'])
+        self.gesture_detector = GestureDetector(self.config.get('gestures', {}))
+        self.system_state = SystemStateManager(self.config.get('gestures', {}))
 
         # MediaPipe drawing utilities for skeleton overlay
         self.mp_pose = mp.solutions.pose
@@ -51,6 +55,11 @@ class PostureMonitor:
 
         # Detection state
         self.first_detection_done = False
+
+        # Gesture tracking for logging
+        self.last_thumbs_up_state = False
+        self.last_thumbs_down_state = False
+        self.last_system_state = SystemState.WAITING_FOR_START
 
         # Statistics
         self.start_time = time.time()
@@ -204,13 +213,19 @@ class PostureMonitor:
     def run(self):
         """Run the main monitoring loop."""
         print("SeniorCare Posture Monitor - Starting...")
+        print("=" * 60)
 
         # Setup camera
         self._setup_camera()
 
         print(f"Config loaded from: config.yaml")
-        print("Detection started...")
-        print("Waiting for person detection...\n")
+        print("\n🖐️  GESTURE CONTROLS ENABLED:")
+        print("  👍 Thumbs Up   - Start/Resume monitoring")
+        print("  👎 Thumbs Down - Pause monitoring")
+        print("=" * 60)
+        print("\n⏳ Waiting for thumbs up to start monitoring...")
+        self._log_message("SYSTEM | Application started - waiting for thumbs up gesture")
+        print()
 
         show_window = self.config['display']['show_camera_window']
 
@@ -229,39 +244,91 @@ class PostureMonitor:
 
                 self.frame_count += 1
 
-                # Detect pose
-                landmarks_dict = self.pose_detector.detect(frame)
+                # Detect gestures (always active for control)
+                gesture_result = self.gesture_detector.detect(frame)
 
-                if landmarks_dict:
-                    # Get current posture for hysteresis
-                    current_posture = self.state_machine.get_expected_posture_for_hysteresis()
+                # Log gesture detection changes
+                self._log_gesture_events(gesture_result)
 
-                    # Calculate metrics (with hysteresis if applicable)
-                    metrics = self.metrics_calculator.calculate_metrics(landmarks_dict, current_posture)
+                # Update system state based on gestures
+                old_system_state = self.system_state.current_state
+                system_msg = self.system_state.update(gesture_result, self.state_machine)
 
-                    # Handle first detection
-                    if not self.first_detection_done:
-                        self._handle_first_detection(metrics)
+                # Log system state changes
+                if system_msg:
+                    timestamp = self._format_timestamp()
+                    print(f"[{timestamp}] {system_msg}")
+                    self._log_message(f"SYSTEM | {system_msg}")
 
-                    # Update state machine
-                    transition = self.state_machine.update(metrics)
+                    # Reset gesture tracking after state changes
+                    if "Thumbs down held" in system_msg:
+                        self.gesture_detector.reset_thumbs_down()
+                    elif "Thumbs up held" in system_msg:
+                        self.gesture_detector.reset_thumbs_up()
 
-                    # Handle transition if one occurred
-                    if transition:
-                        self._handle_transition(transition)
+                # Log ongoing waiting state
+                if self.system_state.current_state != old_system_state:
+                    self._log_system_state_change(old_system_state, self.system_state.current_state)
 
-                    # Draw skeleton overlay if window is enabled
-                    if show_window:
-                        # Convert landmarks back to MediaPipe format for drawing
-                        # (This is a bit hacky but works for visualization)
-                        frame = self._draw_pose_overlay(frame, landmarks_dict)
+                # Only run posture monitoring if system is active
+                if self.system_state.is_monitoring_active():
+                    # Detect pose
+                    landmarks_dict = self.pose_detector.detect(frame)
+
+                    if landmarks_dict:
+                        # Get current posture for hysteresis
+                        current_posture = self.state_machine.get_expected_posture_for_hysteresis()
+
+                        # Calculate metrics (with hysteresis if applicable)
+                        metrics = self.metrics_calculator.calculate_metrics(landmarks_dict, current_posture)
+
+                        # Handle first detection
+                        if not self.first_detection_done:
+                            self._handle_first_detection(metrics)
+
+                        # Update state machine
+                        transition = self.state_machine.update(metrics)
+
+                        # Handle transition if one occurred
+                        if transition:
+                            self._handle_transition(transition)
+
+                        # Draw skeleton overlay if window is enabled
+                        if show_window:
+                            # Convert landmarks back to MediaPipe format for drawing
+                            # (This is a bit hacky but works for visualization)
+                            frame = self._draw_pose_overlay(frame, landmarks_dict)
 
                 # Show camera window if enabled
                 if show_window:
-                    # Add current state text to frame
-                    state_text = f"State: {self.state_machine.current_state.value}"
-                    cv2.putText(frame, state_text, (10, 30),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                    # Display system state (top)
+                    system_state_text = f"System: {self.system_state.get_state_display()}"
+                    cv2.putText(frame, system_state_text, (10, 30),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+
+                    # Display posture state (below system state) if monitoring active
+                    if self.system_state.is_monitoring_active():
+                        posture_state_text = f"Posture: {self.state_machine.current_state.value}"
+                        cv2.putText(frame, posture_state_text, (10, 60),
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+
+                    # Show gesture hints
+                    if gesture_result['hand_detected']:
+                        hand_text = "Hand detected"
+                        if gesture_result.get('thumbs_up', False):
+                            progress = int(gesture_result.get('thumbs_up_progress', 0) * 100)
+                            if gesture_result.get('thumbs_up_held', False):
+                                hand_text += " - THUMBS UP CONFIRMED!"
+                            else:
+                                hand_text += f" - THUMBS UP (hold: {progress}%)"
+                        elif gesture_result.get('thumbs_down', False):
+                            progress = int(gesture_result.get('thumbs_down_progress', 0) * 100)
+                            if gesture_result.get('thumbs_down_held', False):
+                                hand_text += " - THUMBS DOWN CONFIRMED!"
+                            else:
+                                hand_text += f" - THUMBS DOWN (hold: {progress}%)"
+                        cv2.putText(frame, hand_text, (10, 90),
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 255), 2)
 
                     cv2.imshow("SeniorCare Monitor", frame)
 
@@ -303,8 +370,88 @@ class PostureMonitor:
 
         return frame
 
+    def _log_gesture_events(self, gesture_result: dict):
+        """Log gesture detection events to console."""
+        timestamp = self._format_timestamp()
+
+        # Log thumbs up detection and hold progress
+        is_thumbs_up = gesture_result.get('thumbs_up', False)
+        thumbs_up_progress = gesture_result.get('thumbs_up_progress', 0.0)
+        thumbs_up_held = gesture_result.get('thumbs_up_held', False)
+
+        if is_thumbs_up and not self.last_thumbs_up_state:
+            hold_duration = self.config.get('gestures', {}).get('thumbs_up_hold_duration', 2.0)
+            print(f"[{timestamp}] 👍 Thumbs up detected! Hold for {hold_duration}s...")
+            self._log_message(f"GESTURE | Thumbs up detected (hold required: {hold_duration}s)")
+
+        # Show progress for holding thumbs up
+        if is_thumbs_up and thumbs_up_progress > 0 and thumbs_up_progress < 1.0:
+            progress_percent = int(thumbs_up_progress * 100)
+            if progress_percent % 25 == 0 and progress_percent > 0:  # 25%, 50%, 75%
+                if not hasattr(self, '_last_thumbs_up_progress') or self._last_thumbs_up_progress != progress_percent:
+                    print(f"[{timestamp}] 👍 Holding... {progress_percent}%")
+                    self._last_thumbs_up_progress = progress_percent
+
+        if thumbs_up_held and not self.last_thumbs_up_state:
+            print(f"[{timestamp}] ✅ Thumbs up confirmed!")
+            self._log_message("GESTURE | Thumbs up held successfully")
+            if hasattr(self, '_last_thumbs_up_progress'):
+                delattr(self, '_last_thumbs_up_progress')
+
+        self.last_thumbs_up_state = is_thumbs_up
+
+        # Log thumbs down detection and hold progress
+        is_thumbs_down = gesture_result.get('thumbs_down', False)
+        thumbs_down_progress = gesture_result.get('thumbs_down_progress', 0.0)
+        thumbs_down_held = gesture_result.get('thumbs_down_held', False)
+
+        if is_thumbs_down and not self.last_thumbs_down_state:
+            hold_duration = self.config.get('gestures', {}).get('thumbs_down_hold_duration', 2.0)
+            print(f"[{timestamp}] 👎 Thumbs down detected! Hold for {hold_duration}s...")
+            self._log_message(f"GESTURE | Thumbs down detected (hold required: {hold_duration}s)")
+
+        # Show progress for holding thumbs down
+        if is_thumbs_down and thumbs_down_progress > 0 and thumbs_down_progress < 1.0:
+            progress_percent = int(thumbs_down_progress * 100)
+            if progress_percent % 25 == 0 and progress_percent > 0:  # 25%, 50%, 75%
+                if not hasattr(self, '_last_thumbs_down_progress') or self._last_thumbs_down_progress != progress_percent:
+                    print(f"[{timestamp}] 👎 Holding... {progress_percent}%")
+                    self._last_thumbs_down_progress = progress_percent
+
+        if thumbs_down_held and not self.last_thumbs_down_state:
+            print(f"[{timestamp}] ✅ Thumbs down confirmed!")
+            self._log_message("GESTURE | Thumbs down held successfully")
+            if hasattr(self, '_last_thumbs_down_progress'):
+                delattr(self, '_last_thumbs_down_progress')
+
+        self.last_thumbs_down_state = is_thumbs_down
+
+    def _log_system_state_change(self, old_state: SystemState, new_state: SystemState):
+        """Log system state transitions."""
+        timestamp = self._format_timestamp()
+
+        if new_state == SystemState.WAITING_FOR_START:
+            print(f"[{timestamp}] ⏳ Waiting for thumbs up to start monitoring...")
+            self._log_message("SYSTEM | Waiting for start gesture")
+
+        elif new_state == SystemState.ACTIVE_MONITORING:
+            if old_state == SystemState.WAITING_FOR_START:
+                print(f"[{timestamp}] ✅ Monitoring started")
+                self._log_message("SYSTEM | Monitoring started")
+            elif old_state == SystemState.PAUSED:
+                print(f"[{timestamp}] ▶️  Monitoring resumed")
+                self._log_message("SYSTEM | Monitoring resumed")
+
+        elif new_state == SystemState.PAUSED:
+            print(f"[{timestamp}] ⏸️  Monitoring paused")
+            self._log_message("SYSTEM | Monitoring paused")
+
     def _cleanup(self):
         """Clean up resources."""
+        # Close gesture detector
+        if hasattr(self, 'gesture_detector'):
+            self.gesture_detector.cleanup()
+
         # Close CV windows
         cv2.destroyAllWindows()
 
