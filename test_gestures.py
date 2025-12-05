@@ -37,11 +37,11 @@ def create_thumbs_up_landmarks():
     # Wrist
     landmarks.append(MockLandmark(0.5, 0.8, 0.0))
 
-    # Thumb (pointing up - y decreasing)
-    landmarks.append(MockLandmark(0.3, 0.7, 0.0))  # CMC
+    # Thumb (pointing straight up - y decreasing, x constant for vertical alignment)
+    landmarks.append(MockLandmark(0.25, 0.7, 0.0))  # CMC
     landmarks.append(MockLandmark(0.25, 0.5, 0.0))  # MCP (2)
-    landmarks.append(MockLandmark(0.22, 0.3, 0.0))  # IP
-    landmarks.append(MockLandmark(0.2, 0.1, 0.0))   # TIP (4) - highest
+    landmarks.append(MockLandmark(0.25, 0.3, 0.0))  # IP
+    landmarks.append(MockLandmark(0.25, 0.1, 0.0))  # TIP (4) - highest, perfectly vertical
 
     # Index (tightly folded - TIP curls back creating acute angle)
     landmarks.append(MockLandmark(0.5, 0.6, 0.0))    # MCP (5)
@@ -79,11 +79,11 @@ def create_thumbs_down_landmarks():
     # Wrist
     landmarks.append(MockLandmark(0.5, 0.2, 0.0))
 
-    # Thumb (pointing down - y increasing)
-    landmarks.append(MockLandmark(0.3, 0.3, 0.0))  # CMC
+    # Thumb (pointing straight down - y increasing, x constant for vertical alignment)
+    landmarks.append(MockLandmark(0.25, 0.3, 0.0))  # CMC
     landmarks.append(MockLandmark(0.25, 0.5, 0.0))  # MCP (2)
-    landmarks.append(MockLandmark(0.22, 0.7, 0.0))  # IP
-    landmarks.append(MockLandmark(0.2, 0.9, 0.0))   # TIP (4) - lowest
+    landmarks.append(MockLandmark(0.25, 0.7, 0.0))  # IP
+    landmarks.append(MockLandmark(0.25, 0.9, 0.0))  # TIP (4) - lowest, perfectly vertical
 
     # Index (tightly folded - TIP curls back creating acute angle)
     landmarks.append(MockLandmark(0.5, 0.4, 0.0))    # MCP (5)

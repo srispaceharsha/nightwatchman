@@ -1,0 +1,112 @@
+Option 1: Context-Aware Gesture Detection (Recommended)
+
+  Disable gesture detection when the person is in a lying position, only enable when sitting/standing.
+
+  # Only process gestures if person is sitting up or standing
+  if posture_state in [PostureState.SITTING_UP, PostureState.STANDING]:
+      gesture_result = detector.detect(frame)
+  else:
+      gesture_result = None  # Ignore gestures while lying down
+
+  Pros: Simple, directly addresses your use case
+  Cons: Can't pause/resume while lying down
+
+  ---
+  Option 2: Face + Gaze Detection
+
+  Only recognize gestures when face is visible and person is looking at camera.
+
+  # Require face detection + gesture
+  face_detected = detect_face_looking_at_camera(frame)
+  if face_detected:
+      gesture_result = detector.detect(frame)
+
+  Pros: Very robust, requires deliberate attention
+  Cons: More complex, requires face detection library
+
+  ---
+  Option 3: Hand Distance from Body
+
+  Only detect gestures when hand is deliberately raised away from body (using z-depth).
+
+  def is_hand_deliberately_raised(hand_landmarks):
+      """Check if hand is raised away from body (closer to camera)"""
+      wrist = hand_landmarks.landmark[0]
+      # Hand must be closer than threshold (z < -0.1 means closer to camera)
+      return wrist.z < -0.1
+
+  Pros: Distinguishes deliberate gestures from resting hands
+  Cons: May not work if camera angle/distance varies
+
+  ---
+  Option 4: Wave-to-Activate
+
+  Require a deliberate wave motion before gesture detection becomes active.
+
+  # Detect side-to-side hand motion first
+  if detect_wave_motion(hand_positions_history):
+      enable_gesture_detection_for_10_seconds()
+
+  Pros: Very intentional, almost no false positives
+  Cons: Two-step process, less convenient
+
+  ---
+  Option 5: Palm Orientation Check
+
+  Require palm to face camera (not just thumb direction).
+
+  def is_palm_facing_camera(hand_landmarks):
+      """Check if palm is facing forward toward camera"""
+      # Check z-positions of fingertips vs knuckles
+      fingertips_avg_z = avg([lm[8].z, lm[12].z, lm[16].z, lm[20].z])
+      knuckles_avg_z = avg([lm[5].z, lm[9].z, lm[13].z, lm[17].z])
+      # Palm faces camera if fingertips are further from camera
+      return fingertips_avg_z > knuckles_avg_z + 0.03
+
+  Pros: Distinguishes deliberate presentation from random fist
+  Cons: May require specific hand positioning
+
+  ---
+  Option 6: Multi-Signal Confirmation
+
+  Combine multiple checks (my recommendation for your use case):
+
+  def detect_intentional_gesture(frame, hand_landmarks, posture_state):
+      # 1. Must be sitting up or standing (not lying)
+      if posture_state == PostureState.LYING:
+          return None
+
+      # 2. Hand must be raised (close to camera)
+      if not is_hand_deliberately_raised(hand_landmarks):
+          return None
+
+      # 3. Palm should face camera
+      if not is_palm_facing_camera(hand_landmarks):
+          return None
+
+      # 4. Now check thumb gesture
+      return classify_thumbs_up_or_down(hand_landmarks)
+
+  Pros: Layered defense, very robust
+  Cons: More complex, multiple points of failure
+
+  ---
+  Option 7: Higher Confidence Threshold + Longer Hold
+
+  Simply increase the requirements:
+  - Longer hold duration (3-4 seconds instead of 2)
+  - Stricter angle tolerance (back to 5°)
+  - Higher MediaPipe confidence threshold
+
+  ---
+  My Recommendation
+
+  For your sleep monitoring use case, I'd suggest combining Options 1 + 5:
+
+  1. Context-aware: Disable gestures when lying down
+  2. Palm orientation: Require palm facing camera
+
+  This gives you:
+  - No false positives from sleeping (they're lying down)
+  - More intentional gestures (must show palm to camera)
+  - Still relatively convenient to use

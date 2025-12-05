@@ -24,6 +24,39 @@ def angle_at(p1, p2, p3):
     return math.degrees(math.acos(cosang))
 
 
+def calculate_thumb_vertical_angle(p_base, p_tip):
+    """
+    Calculate angle (in degrees) between thumb direction and vertical axis in 2D (x-y plane).
+    Ignores z-component (depth) since we only care about the screen-space angle.
+
+    Args:
+        p_base: Base point (e.g., thumb MCP)
+        p_tip: Tip point (e.g., thumb tip)
+
+    Returns:
+        Angle in degrees from vertical (0° = straight up, 180° = straight down)
+    """
+    # Thumb direction vector in 2D (x-y plane only, ignoring z/depth)
+    thumb_vec_2d = (p_tip.x - p_base.x, p_tip.y - p_base.y)
+
+    print(f"[DEBUG] Thumb vector 2D: ({thumb_vec_2d[0]:.3f}, {thumb_vec_2d[1]:.3f})")
+
+    # Vertical vector (pointing up in image coordinates: negative y direction)
+    vertical_vec = (0, -1)
+
+    # Calculate angle using dot product in 2D
+    dot = thumb_vec_2d[0]*vertical_vec[0] + thumb_vec_2d[1]*vertical_vec[1]
+    thumb_len = math.sqrt(thumb_vec_2d[0]**2 + thumb_vec_2d[1]**2)
+
+    if thumb_len == 0:
+        return 90.0  # Undefined, return perpendicular
+
+    cosang = max(-1.0, min(1.0, dot / thumb_len))
+    angle = math.degrees(math.acos(cosang))
+    print(f"[DEBUG] Dot: {dot:.3f}, Length: {thumb_len:.3f}, Angle: {angle:.2f}°")
+    return angle
+
+
 def classify_thumbs_up(hand_landmarks):
     """
     Detect thumbs up gesture.
@@ -33,6 +66,7 @@ def classify_thumbs_up(hand_landmarks):
     """
     MIN_FOLDED_FINGERS = 2
     FOLDED_ANGLE_MAX = 120
+    MAX_VERTICAL_DEVIATION = 20.0  # degrees from perfect vertical
 
     lm = hand_landmarks.landmark
 
@@ -41,6 +75,15 @@ def classify_thumbs_up(hand_landmarks):
     thumb_mcp = lm[2]
     index_mcp = lm[5]
     thumb_up = (thumb_tip.y < thumb_mcp.y) and (thumb_tip.y < index_mcp.y)
+
+    # Check if thumb is pointing straight up (within ±8 degrees)
+    if thumb_up:
+        vertical_angle = calculate_thumb_vertical_angle(thumb_mcp, thumb_tip)
+        # For thumbs up, angle should be close to 0° (straight up)
+        print(f"[DEBUG] Thumbs UP - Vertical angle: {vertical_angle:.2f}°, Max allowed: {MAX_VERTICAL_DEVIATION}°")
+        if vertical_angle > MAX_VERTICAL_DEVIATION:
+            print(f"[DEBUG] Thumbs UP REJECTED - angle {vertical_angle:.2f}° > {MAX_VERTICAL_DEVIATION}°")
+            thumb_up = False
 
     # Fold detection via angles at PIP joints
     finger_joints = {
@@ -88,6 +131,7 @@ def classify_thumbs_down(hand_landmarks):
     """
     MIN_FOLDED_FINGERS = 2
     FOLDED_ANGLE_MAX = 120
+    MAX_VERTICAL_DEVIATION = 20.0  # degrees from perfect vertical
 
     lm = hand_landmarks.landmark
 
@@ -96,6 +140,15 @@ def classify_thumbs_down(hand_landmarks):
     thumb_mcp = lm[2]
     index_mcp = lm[5]
     thumb_down = (thumb_tip.y > thumb_mcp.y) and (thumb_tip.y > index_mcp.y)
+
+    # Check if thumb is pointing straight down (within ±10 degrees)
+    if thumb_down:
+        vertical_angle = calculate_thumb_vertical_angle(thumb_mcp, thumb_tip)
+        # For thumbs down, angle should be close to 180° (straight down)
+        print(f"[DEBUG] Thumbs DOWN - Vertical angle: {vertical_angle:.2f}°, Max allowed: 180±{MAX_VERTICAL_DEVIATION}°")
+        if abs(vertical_angle - 180.0) > MAX_VERTICAL_DEVIATION:
+            print(f"[DEBUG] Thumbs DOWN REJECTED - angle {vertical_angle:.2f}° not within 180±{MAX_VERTICAL_DEVIATION}°")
+            thumb_down = False
 
     # Fold detection via angles at PIP joints
     finger_joints = {
