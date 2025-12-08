@@ -32,10 +32,11 @@ def create_thumbs_up_landmarks():
     """
     Create mock hand landmarks for thumbs up gesture.
     Thumb pointing up, other fingers tightly folded to create angles < 120 degrees.
+    Hand deliberately presented (close to camera, raised, large size).
     """
     landmarks = []
-    # Wrist
-    landmarks.append(MockLandmark(0.5, 0.8, 0.0))
+    # Wrist - positioned close to camera (z < -0.05), raised (y < 0.6)
+    landmarks.append(MockLandmark(0.5, 0.4, -0.1))
 
     # Thumb (pointing straight up - y decreasing, x constant for vertical alignment)
     landmarks.append(MockLandmark(0.25, 0.7, 0.0))  # CMC
@@ -49,11 +50,11 @@ def create_thumbs_up_landmarks():
     landmarks.append(MockLandmark(0.49, 0.58, 0.0))  # DIP - curling back
     landmarks.append(MockLandmark(0.51, 0.60, 0.0))  # TIP (8) - back near MCP
 
-    # Middle (tightly folded)
+    # Middle (tightly folded) - positioned to create larger hand size
     landmarks.append(MockLandmark(0.6, 0.6, 0.0))    # MCP (9)
     landmarks.append(MockLandmark(0.58, 0.55, 0.0))  # PIP (10) - bend point
     landmarks.append(MockLandmark(0.59, 0.58, 0.0))  # DIP - curling back
-    landmarks.append(MockLandmark(0.61, 0.60, 0.0))  # TIP (12) - back near MCP
+    landmarks.append(MockLandmark(0.62, 0.2, 0.0))   # TIP (12) - extended up for hand size > 0.12
 
     # Ring (tightly folded)
     landmarks.append(MockLandmark(0.7, 0.6, 0.0))    # MCP (13)
@@ -74,10 +75,11 @@ def create_thumbs_down_landmarks():
     """
     Create mock hand landmarks for thumbs down gesture.
     Thumb pointing down, other fingers tightly folded to create angles < 120 degrees.
+    Hand deliberately presented (close to camera, raised, large size).
     """
     landmarks = []
-    # Wrist
-    landmarks.append(MockLandmark(0.5, 0.2, 0.0))
+    # Wrist - positioned close to camera (z < -0.05), raised (y < 0.6)
+    landmarks.append(MockLandmark(0.5, 0.3, -0.1))
 
     # Thumb (pointing straight down - y increasing, x constant for vertical alignment)
     landmarks.append(MockLandmark(0.25, 0.3, 0.0))  # CMC
@@ -91,11 +93,11 @@ def create_thumbs_down_landmarks():
     landmarks.append(MockLandmark(0.49, 0.42, 0.0))  # DIP - curling back
     landmarks.append(MockLandmark(0.51, 0.40, 0.0))  # TIP (8) - back near MCP
 
-    # Middle (tightly folded)
+    # Middle (tightly folded) - positioned to create larger hand size
     landmarks.append(MockLandmark(0.6, 0.4, 0.0))    # MCP (9)
     landmarks.append(MockLandmark(0.58, 0.45, 0.0))  # PIP (10) - bend point
     landmarks.append(MockLandmark(0.59, 0.42, 0.0))  # DIP - curling back
-    landmarks.append(MockLandmark(0.61, 0.40, 0.0))  # TIP (12) - back near MCP
+    landmarks.append(MockLandmark(0.62, 0.1, 0.0))   # TIP (12) - extended up for hand size > 0.12
 
     # Ring (tightly folded)
     landmarks.append(MockLandmark(0.7, 0.4, 0.0))    # MCP (13)
@@ -356,15 +358,18 @@ class TestSystemStateManager(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
+        from state_machine import State
+
         self.config = {
             'thumbs_up_hold_duration': 2.0,
             'thumbs_down_hold_duration': 2.0
         }
         self.state_manager = SystemStateManager(self.config)
 
-        # Mock posture state machine
+        # Mock posture state machine - set to SITTING_DETECTED so gestures are enabled
         self.mock_posture_sm = Mock()
         self.mock_posture_sm.config = {'cooldown_duration': 15}
+        self.mock_posture_sm.current_state = State.SITTING_DETECTED
 
     def test_initial_state_waiting(self):
         """Test that initial state is WAITING_FOR_START."""

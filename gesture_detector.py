@@ -24,37 +24,40 @@ def angle_at(p1, p2, p3):
     return math.degrees(math.acos(cosang))
 
 
-def calculate_thumb_vertical_angle(p_base, p_tip):
+def is_hand_deliberately_presented(hand_landmarks):
     """
-    Calculate angle (in degrees) between thumb direction and vertical axis in 2D (x-y plane).
-    Ignores z-component (depth) since we only care about the screen-space angle.
+    Check if hand is deliberately presented to camera (intentional gesture).
+
+    Distinguishes between:
+    - Caretaker deliberately showing hand
+    - Sleeping person's random hand position
+
+    Uses very lenient checks - main filtering happens via posture state.
 
     Args:
-        p_base: Base point (e.g., thumb MCP)
-        p_tip: Tip point (e.g., thumb tip)
+        hand_landmarks: MediaPipe hand landmarks
 
     Returns:
-        Angle in degrees from vertical (0° = straight up, 180° = straight down)
+        bool: True if hand appears to be deliberately presented
     """
-    # Thumb direction vector in 2D (x-y plane only, ignoring z/depth)
-    thumb_vec_2d = (p_tip.x - p_base.x, p_tip.y - p_base.y)
+    wrist = hand_landmarks.landmark[0]
+    middle_tip = hand_landmarks.landmark[12]
 
-    print(f"[DEBUG] Thumb vector 2D: ({thumb_vec_2d[0]:.3f}, {thumb_vec_2d[1]:.3f})")
+    # Check: Hand size (apparent size indicates proximity)
+    # Calculate hand length from wrist to middle fingertip
+    hand_length = math.sqrt(
+        (middle_tip.x - wrist.x)**2 +
+        (middle_tip.y - wrist.y)**2
+    )
+    is_large_enough = hand_length > 0.08  # Very lenient - just filter tiny distant hands
+    print(f"[HAND CHECK] Size: hand_length={hand_length:.3f}, is_large={is_large_enough} (need > 0.08)")
 
-    # Vertical vector (pointing up in image coordinates: negative y direction)
-    vertical_vec = (0, -1)
+    # Note: Removed strict proximity and position checks
+    # Main false-positive prevention happens via posture state filtering
 
-    # Calculate angle using dot product in 2D
-    dot = thumb_vec_2d[0]*vertical_vec[0] + thumb_vec_2d[1]*vertical_vec[1]
-    thumb_len = math.sqrt(thumb_vec_2d[0]**2 + thumb_vec_2d[1]**2)
+    print(f"[HAND CHECK] Result: {'✓ PASSES' if is_large_enough else '✗ TOO SMALL'}")
 
-    if thumb_len == 0:
-        return 90.0  # Undefined, return perpendicular
-
-    cosang = max(-1.0, min(1.0, dot / thumb_len))
-    angle = math.degrees(math.acos(cosang))
-    print(f"[DEBUG] Dot: {dot:.3f}, Length: {thumb_len:.3f}, Angle: {angle:.2f}°")
-    return angle
+    return is_large_enough
 
 
 def classify_thumbs_up(hand_landmarks):
@@ -66,24 +69,22 @@ def classify_thumbs_up(hand_landmarks):
     """
     MIN_FOLDED_FINGERS = 2
     FOLDED_ANGLE_MAX = 120
-    MAX_VERTICAL_DEVIATION = 20.0  # degrees from perfect vertical
 
     lm = hand_landmarks.landmark
+
+    print("[THUMBS UP] Checking gesture...")
+
+    # Check if hand is deliberately presented (close to camera, raised up)
+    if not is_hand_deliberately_presented(hand_landmarks):
+        print("[THUMBS UP] ✗ REJECTED - Hand not deliberately presented")
+        return False, None, 0
 
     # Thumb up: tip higher (smaller y) than MCP + index MCP
     thumb_tip = lm[4]
     thumb_mcp = lm[2]
     index_mcp = lm[5]
     thumb_up = (thumb_tip.y < thumb_mcp.y) and (thumb_tip.y < index_mcp.y)
-
-    # Check if thumb is pointing straight up (within ±8 degrees)
-    if thumb_up:
-        vertical_angle = calculate_thumb_vertical_angle(thumb_mcp, thumb_tip)
-        # For thumbs up, angle should be close to 0° (straight up)
-        print(f"[DEBUG] Thumbs UP - Vertical angle: {vertical_angle:.2f}°, Max allowed: {MAX_VERTICAL_DEVIATION}°")
-        if vertical_angle > MAX_VERTICAL_DEVIATION:
-            print(f"[DEBUG] Thumbs UP REJECTED - angle {vertical_angle:.2f}° > {MAX_VERTICAL_DEVIATION}°")
-            thumb_up = False
+    print(f"[THUMBS UP] Thumb direction: tip.y={thumb_tip.y:.3f} < mcp.y={thumb_mcp.y:.3f} and < index.y={index_mcp.y:.3f} = {thumb_up}")
 
     # Fold detection via angles at PIP joints
     finger_joints = {
@@ -99,8 +100,14 @@ def classify_thumbs_up(hand_landmarks):
         folded[name] = a < FOLDED_ANGLE_MAX
 
     folded_count = sum(1 for v in folded.values() if v)
+    print(f"[THUMBS UP] Folded fingers: {folded_count} (need >= {MIN_FOLDED_FINGERS})")
 
-    if not thumb_up or folded_count < MIN_FOLDED_FINGERS:
+    if not thumb_up:
+        print("[THUMBS UP] ✗ REJECTED - Thumb not pointing up")
+        return False, None, folded_count
+
+    if folded_count < MIN_FOLDED_FINGERS:
+        print(f"[THUMBS UP] ✗ REJECTED - Not enough folded fingers ({folded_count} < {MIN_FOLDED_FINGERS})")
         return False, None, folded_count
 
     # Orientation: palm / back / fist
@@ -119,6 +126,7 @@ def classify_thumbs_up(hand_landmarks):
         else:
             variant = "palm"
 
+    print(f"[THUMBS UP] ✓ DETECTED - variant={variant}, folded={folded_count}")
     return True, variant, folded_count
 
 
@@ -131,24 +139,22 @@ def classify_thumbs_down(hand_landmarks):
     """
     MIN_FOLDED_FINGERS = 2
     FOLDED_ANGLE_MAX = 120
-    MAX_VERTICAL_DEVIATION = 20.0  # degrees from perfect vertical
 
     lm = hand_landmarks.landmark
+
+    print("[THUMBS DOWN] Checking gesture...")
+
+    # Check if hand is deliberately presented (close to camera, raised up)
+    if not is_hand_deliberately_presented(hand_landmarks):
+        print("[THUMBS DOWN] ✗ REJECTED - Hand not deliberately presented")
+        return False, None, 0
 
     # Thumb down: tip lower (larger y) than MCP + index MCP
     thumb_tip = lm[4]
     thumb_mcp = lm[2]
     index_mcp = lm[5]
     thumb_down = (thumb_tip.y > thumb_mcp.y) and (thumb_tip.y > index_mcp.y)
-
-    # Check if thumb is pointing straight down (within ±10 degrees)
-    if thumb_down:
-        vertical_angle = calculate_thumb_vertical_angle(thumb_mcp, thumb_tip)
-        # For thumbs down, angle should be close to 180° (straight down)
-        print(f"[DEBUG] Thumbs DOWN - Vertical angle: {vertical_angle:.2f}°, Max allowed: 180±{MAX_VERTICAL_DEVIATION}°")
-        if abs(vertical_angle - 180.0) > MAX_VERTICAL_DEVIATION:
-            print(f"[DEBUG] Thumbs DOWN REJECTED - angle {vertical_angle:.2f}° not within 180±{MAX_VERTICAL_DEVIATION}°")
-            thumb_down = False
+    print(f"[THUMBS DOWN] Thumb direction: tip.y={thumb_tip.y:.3f} > mcp.y={thumb_mcp.y:.3f} and > index.y={index_mcp.y:.3f} = {thumb_down}")
 
     # Fold detection via angles at PIP joints
     finger_joints = {
@@ -164,8 +170,14 @@ def classify_thumbs_down(hand_landmarks):
         folded[name] = a < FOLDED_ANGLE_MAX
 
     folded_count = sum(1 for v in folded.values() if v)
+    print(f"[THUMBS DOWN] Folded fingers: {folded_count} (need >= {MIN_FOLDED_FINGERS})")
 
-    if not thumb_down or folded_count < MIN_FOLDED_FINGERS:
+    if not thumb_down:
+        print("[THUMBS DOWN] ✗ REJECTED - Thumb not pointing down")
+        return False, None, folded_count
+
+    if folded_count < MIN_FOLDED_FINGERS:
+        print(f"[THUMBS DOWN] ✗ REJECTED - Not enough folded fingers ({folded_count} < {MIN_FOLDED_FINGERS})")
         return False, None, folded_count
 
     # Orientation: palm / back / fist
@@ -184,6 +196,7 @@ def classify_thumbs_down(hand_landmarks):
         else:
             variant = "palm"
 
+    print(f"[THUMBS DOWN] ✓ DETECTED - variant={variant}, folded={folded_count}")
     return True, variant, folded_count
 
 
@@ -255,6 +268,7 @@ class GestureDetector:
         if results.multi_hand_landmarks:
             hand_landmarks = results.multi_hand_landmarks[0]
             gesture_result['hand_detected'] = True
+            print("\n[HAND DETECTED] Processing hand landmarks...")
 
             # Detect thumbs up
             is_up, _, _ = classify_thumbs_up(hand_landmarks)
@@ -267,6 +281,11 @@ class GestureDetector:
             if is_down:
                 thumbs_down_now = True
                 gesture_result['thumbs_down'] = True
+
+            print("")  # Blank line for readability
+        else:
+            # No hand detected this frame
+            pass
 
         # Track thumbs up with hold duration and grace period
         if thumbs_up_now:

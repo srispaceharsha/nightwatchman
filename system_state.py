@@ -39,7 +39,28 @@ class SystemStateManager:
         Returns:
             Status message if state changed, None otherwise
         """
+        from state_machine import State
+
         old_state = self.current_state
+
+        # During WAITING_FOR_START, allow gestures regardless of posture
+        # (so caretaker can start monitoring even while person is lying down)
+        if self.current_state != SystemState.WAITING_FOR_START:
+            # After started, only process gestures when person is sitting up or standing
+            # Ignore gestures when lying down to prevent false positives from sleeping person
+            posture_state = posture_state_machine.current_state
+            gesture_enabled_states = [
+                State.SITTING_DETECTED,
+                State.ALERT_ACTIVE,
+                State.ALERT_COOLDOWN
+            ]
+
+            # If person is lying down, ignore all gestures
+            if posture_state not in gesture_enabled_states:
+                # Don't process gestures when person is lying/restless
+                if gesture_result.get('hand_detected', False):
+                    print(f"[GESTURE FILTER] Ignoring gestures - person is {posture_state.value} (need sitting/standing)")
+                return None
 
         if self.current_state == SystemState.WAITING_FOR_START:
             # Wait for thumbs up to start (must be held)
