@@ -46,3 +46,26 @@ logging:
   log_file: logs/state_transitions.log
   log_to_file: true
   log_to_terminal: true
+
+# MQTT Integration (Home Assistant)
+mqtt:
+  enabled: true
+  broker: "localhost"           # MQTT broker address (localhost if on same Pi)
+  port: 1883
+  username: "nightwatchman"     # MQTT username
+  password: "nightwatch123"     # MQTT password (change this!)
+  topics:
+    state: "nightwatchman/state"       # System state (WAITING_FOR_START, ACTIVE_MONITORING, PAUSED)
+    posture: "nightwatchman/posture"   # Posture state (MONITORING_LYING, SITTING_DETECTED, etc.)
+    alert: "nightwatchman/alert"       # Alert events (PERSON_SITTING_UP)
+    stats: "nightwatchman/stats"       # Statistics (alert_count, uptime, etc.)
+    command: "nightwatchman/command"   # Commands from HA (start, stop, pause, resume)
+
+# HTTP Server (Video Streaming)
+http:
+  enabled: true
+  host: "0.0.0.0"               # Listen on all interfaces
+  port: 5000                    # HTTP server port
+  stream_fps: 5                 # Video stream frame rate (lower = less bandwidth)
+  stream_width: 320             # Video stream width in pixels
+  stream_height: 240            # Video stream height in pixels

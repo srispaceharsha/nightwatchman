@@ -95,7 +95,7 @@ Nightwatchman (SeniorCare Posture Monitor) is a computer vision-based monitoring
 
 **Criteria**:
 1. **Hand Deliberateness Check**:
-   - Hand size > 0.08 (filters distant/small hands)
+   - Hand size > 0.15 (15% of frame - filters distant/small hands)
 
 2. **Thumb Orientation**:
    - Thumb tip Y < Thumb MCP Y (tip higher than base)
@@ -122,12 +122,11 @@ Same algorithm as thumbs up, but with inverted thumb direction:
 
 ### Gesture Filtering
 
-**Posture-Based Filtering**: After system starts, gestures are only processed when person is in sitting/standing postures, NOT when lying down. This prevents false positives from a sleeping person's random hand positions.
+**Size-Based Filtering**: Gestures are filtered based on hand size in the frame. Hand must be at least 15% of frame size (wrist to middle fingertip). This prevents false positives from a sleeping person's distant hands while allowing caregivers to control the system at any time.
 
-**Enabled States for Gestures**:
-- SITTING_DETECTED
-- ALERT_ACTIVE
-- ALERT_COOLDOWN
+**How It Works**:
+- **Caregiver** standing near camera with hand raised → Hand appears large (>15%) → ✅ Gesture accepted
+- **Sleeping person** lying far from camera → Hand appears small (<15%) → ✗ Gesture rejected
 
 ## Posture Detection Algorithm
 

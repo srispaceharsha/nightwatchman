@@ -20,6 +20,8 @@ from metrics_calculator import MetricsCalculator
 from state_machine import PostureStateMachine, State
 from gesture_detector import GestureDetector
 from system_state import SystemStateManager, SystemState
+from mqtt_client import MQTTClient
+from http_server import VideoStreamServer
 
 
 class PostureMonitor:
@@ -65,6 +67,17 @@ class PostureMonitor:
         self.start_time = time.time()
         self.frame_count = 0
         self.alert_count = 0
+
+        # MQTT Integration
+        mqtt_config = self.config.get('mqtt', {})
+        self.mqtt_client = MQTTClient(mqtt_config, self._handle_mqtt_command)
+
+        # HTTP Server for video streaming
+        http_config = self.config.get('http', {})
+        self.http_server = VideoStreamServer(http_config)
+
+        # MQTT command pending flag
+        self.pending_mqtt_command = None
 
     def _load_config(self, config_path: str) -> dict:
         """Load configuration from YAML file."""
@@ -140,6 +153,54 @@ class PostureMonitor:
             os.system('afplay /System/Library/Sounds/Glass.aiff')
             time.sleep(0.15)  # Small delay between dings
 
+    def _handle_mqtt_command(self, command: str):
+        """
+        Handle MQTT command from Home Assistant.
+
+        Args:
+            command: Command string (start, stop, pause, resume)
+        """
+        self.pending_mqtt_command = command
+        print(f"[MQTT] Queued command: {command}")
+
+    def _process_mqtt_command(self, command: str):
+        """
+        Process MQTT command (simulates gesture input).
+
+        Args:
+            command: Command string (start, stop, pause, resume)
+        """
+        timestamp = self._format_timestamp()
+
+        if command == "start":
+            if self.system_state.current_state == SystemState.WAITING_FOR_START:
+                self.system_state.current_state = SystemState.ACTIVE_MONITORING
+                print(f"[{timestamp}] [MQTT] Monitoring started via HA command")
+                self._log_message("SYSTEM | Monitoring started via MQTT command")
+                self.mqtt_client.publish_state("ACTIVE_MONITORING")
+
+        elif command == "stop":
+            self.system_state.current_state = SystemState.WAITING_FOR_START
+            print(f"[{timestamp}] [MQTT] Monitoring stopped via HA command")
+            self._log_message("SYSTEM | Monitoring stopped via MQTT command")
+            self.mqtt_client.publish_state("WAITING_FOR_START")
+
+        elif command == "pause":
+            if self.system_state.current_state == SystemState.ACTIVE_MONITORING:
+                self.system_state.current_state = SystemState.PAUSED
+                self.system_state.pause_start_time = time.time()
+                print(f"[{timestamp}] [MQTT] Monitoring paused via HA command")
+                self._log_message("SYSTEM | Monitoring paused via MQTT command")
+                self.mqtt_client.publish_state("PAUSED")
+
+        elif command == "resume":
+            if self.system_state.current_state == SystemState.PAUSED:
+                self.system_state.current_state = SystemState.ACTIVE_MONITORING
+                self.system_state.pause_start_time = None
+                print(f"[{timestamp}] [MQTT] Monitoring resumed via HA command")
+                self._log_message("SYSTEM | Monitoring resumed via MQTT command")
+                self.mqtt_client.publish_state("ACTIVE_MONITORING")
+
     def _handle_first_detection(self, metrics: dict):
         """Handle the first successful pose detection."""
         if self.first_detection_done:
@@ -183,6 +244,9 @@ class PostureMonitor:
         # Terminal output
         print(f"[{timestamp}] STATE: {to_state} (confidence={confidence:.2f}, angle={angle:.0f}°)")
 
+        # Publish posture state to MQTT
+        self.mqtt_client.publish_posture(to_state)
+
         # Handle specific state transitions
         if transition.to_state == State.SITTING_DETECTED:
             duration = self.config['detection']['persistence_duration']
@@ -197,6 +261,8 @@ class PostureMonitor:
             self.alert_count += 1
             # Play audio alert
             self._play_alert_sound()
+            # Publish alert to MQTT
+            self.mqtt_client.publish_alert("PERSON_SITTING_UP")
 
         elif transition.to_state == State.ALERT_COOLDOWN:
             if transition.from_state == State.ALERT_ACTIVE:
@@ -218,13 +284,21 @@ class PostureMonitor:
         # Setup camera
         self._setup_camera()
 
+        # Start HTTP server
+        self.http_server.start()
+
         print(f"Config loaded from: config.yaml")
         print("\n🖐️  GESTURE CONTROLS ENABLED:")
         print("  👍 Thumbs Up   - Start/Resume monitoring")
         print("  👎 Thumbs Down - Pause monitoring")
+        print("\n📱 HOME ASSISTANT INTEGRATION:")
+        if self.mqtt_client.connected:
+            print("  ✓ MQTT connected - Commands available via HA")
+        if self.http_server.enabled:
+            print(f"  ✓ Video stream: http://localhost:{self.http_server.port}/video_feed")
         print("=" * 60)
-        print("\n⏳ Waiting for thumbs up to start monitoring...")
-        self._log_message("SYSTEM | Application started - waiting for thumbs up gesture")
+        print("\n⏳ Waiting for thumbs up or HA start command...")
+        self._log_message("SYSTEM | Application started - waiting for start gesture or command")
         print()
 
         show_window = self.config['display']['show_camera_window']
@@ -233,6 +307,10 @@ class PostureMonitor:
         processing_fps = self.config['camera'].get('processing_fps', 30)
         frame_delay = 1.0 / processing_fps
         print(f"Processing rate: {processing_fps} FPS (frame every {frame_delay:.3f}s)")
+
+        # Stats publishing interval (every 30 seconds)
+        last_stats_publish = time.time()
+        stats_interval = 30
 
         try:
             while True:
@@ -243,6 +321,14 @@ class PostureMonitor:
                     break
 
                 self.frame_count += 1
+
+                # Update HTTP server with current frame
+                self.http_server.update_frame(frame)
+
+                # Process pending MQTT command (if any)
+                if self.pending_mqtt_command:
+                    self._process_mqtt_command(self.pending_mqtt_command)
+                    self.pending_mqtt_command = None
 
                 # Detect gestures (always active for control)
                 gesture_result = self.gesture_detector.detect(frame)
@@ -337,6 +423,11 @@ class PostureMonitor:
                         print("\nUser requested quit...")
                         break
 
+                # Publish stats periodically to MQTT
+                if time.time() - last_stats_publish >= stats_interval:
+                    self.mqtt_client.publish_stats(self.alert_count, self.frame_count)
+                    last_stats_publish = time.time()
+
                 # Frame rate control - sleep to achieve configured FPS
                 time.sleep(frame_delay)
 
@@ -430,6 +521,9 @@ class PostureMonitor:
         """Log system state transitions."""
         timestamp = self._format_timestamp()
 
+        # Publish state change to MQTT
+        self.mqtt_client.publish_state(new_state.value)
+
         if new_state == SystemState.WAITING_FOR_START:
             print(f"[{timestamp}] ⏳ Waiting for thumbs up to start monitoring...")
             self._log_message("SYSTEM | Waiting for start gesture")
@@ -451,6 +545,14 @@ class PostureMonitor:
         # Close gesture detector
         if hasattr(self, 'gesture_detector'):
             self.gesture_detector.cleanup()
+
+        # Close MQTT connection
+        if hasattr(self, 'mqtt_client'):
+            self.mqtt_client.cleanup()
+
+        # Stop HTTP server
+        if hasattr(self, 'http_server'):
+            self.http_server.stop()
 
         # Close CV windows
         cv2.destroyAllWindows()

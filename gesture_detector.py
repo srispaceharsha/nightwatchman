@@ -29,10 +29,10 @@ def is_hand_deliberately_presented(hand_landmarks):
     Check if hand is deliberately presented to camera (intentional gesture).
 
     Distinguishes between:
-    - Caretaker deliberately showing hand
-    - Sleeping person's random hand position
+    - Caretaker deliberately showing hand close to camera (large in frame)
+    - Sleeping person's distant hand (small in frame)
 
-    Uses very lenient checks - main filtering happens via posture state.
+    Uses hand size threshold - requires hand to be 15% of frame size.
 
     Args:
         hand_landmarks: MediaPipe hand landmarks
@@ -49,11 +49,11 @@ def is_hand_deliberately_presented(hand_landmarks):
         (middle_tip.x - wrist.x)**2 +
         (middle_tip.y - wrist.y)**2
     )
-    is_large_enough = hand_length > 0.08  # Very lenient - just filter tiny distant hands
-    print(f"[HAND CHECK] Size: hand_length={hand_length:.3f}, is_large={is_large_enough} (need > 0.08)")
+    is_large_enough = hand_length > 0.15  # Hand must be 15% of frame - filters distant hands
+    print(f"[HAND CHECK] Size: hand_length={hand_length:.3f}, is_large={is_large_enough} (need > 0.15)")
 
-    # Note: Removed strict proximity and position checks
-    # Main false-positive prevention happens via posture state filtering
+    # Note: This size-based filtering prevents false positives from sleeping person's
+    # distant hands while allowing caregiver's close hand gestures
 
     print(f"[HAND CHECK] Result: {'✓ PASSES' if is_large_enough else '✗ TOO SMALL'}")
 

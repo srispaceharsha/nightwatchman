@@ -1,4 +1,0 @@
-2025-11-14 15:33:57.267 | DETECTION | First detection: Person found sitting up (confidence=0.50, angle=91°)
-2025-11-14 15:34:01.761 | TRANSITION | MONITORING_LYING → RESTLESS_MOVEMENT | confidence=0.72 angle=94° vdiff=0.59
-2025-11-14 15:34:01.796 | TRANSITION | RESTLESS_MOVEMENT → SITTING_DETECTED | confidence=0.75 angle=95° vdiff=0.59
-2025-11-14 15:34:01.797 | TIMER | persistence_timer started (5s)
